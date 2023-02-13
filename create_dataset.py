@@ -2,15 +2,41 @@ from sop_dataset import LineByLineWithSOPTextDataset
 from transformers import AlbertTokenizerFast
 from os import makedirs
 import sys
+import argparse
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='''
+        This Script is used to Pretrain A Light Legal BERT in Line with the Pretrain-ALBERT Project 
+    ''')
+
+    parser.add_argument('--data_dir', type=str, required=True,
+                        help='''
+                            Path to a directory which potentially can contain multiple files.
+                            All these files will be processed as input data.
+                            ''',
+                        default='/Datasets/RawTexts')
+
+    parser.add_argument('--model_name', type=str, required=False,
+                        help='''The Model (with its corresponding Tokenizer) that shall be used.''',
+                        default='albert-base-v2')
+
+    parser.add_argument('--output_dir', type=str, required=False,
+                        help='''
+                        The script will output two datasets, one validation set and one training set to this adress.
+                        ''',
+                        default='')
+
+    return parser.parse_args()
+
+args = parse_args()
 dataset = LineByLineWithSOPTextDataset
-model_path = 'albert-base-v2' # huggingface model path, e.g., 'albert-base-v2'
+model_path = args.model_name  # huggingface model path, e.g., 'albert-base-v2'
 tokenizer = AlbertTokenizerFast.from_pretrained(model_path)
 
 assert len(sys.argv) > 1
 
-input_data_dir = sys.argv[1]
-dataset_path = sys.argv[2] if len(sys.argv) > 2 else input_data_dir + '_tokenized'
+input_data_dir = args.data_dir
+dataset_path = args.output_dir if len(args.output_dir) > 0 else input_data_dir + '_tokenized'
 
 makedirs(dataset_path, exist_ok=True)
 
