@@ -39,6 +39,19 @@ def parse_args():
                             Add this flag to use randomly initialized weights instead of further
                             pretraining the given model. 
                             ''')
+    parser.add_argument('--per_device_batch_size', type=int, required=False,
+                        help='''
+                            Batch_size per device. 
+                            The greater the faster but runs quickly into out of memory problems on most gpus.
+                            ''',
+                        default=16)
+    parser.add_argument('--num_train_epochs', type=int, required=False,
+                        help='''How long shall the model be trained?''',
+                        default=13)
+
+    parser.add_argument('--checkpoint', type=str, required=False,
+                        help='''Path to a saved checkpoint from a previous session to continue training from there''',
+                        default='')
 
     return parser.parse_args()
 
@@ -93,9 +106,9 @@ if __name__ == '__main__':
     training_args = TrainingArguments(
         output_dir=out_dir,
         overwrite_output_dir=True,
-        num_train_epochs=13,
-        per_gpu_train_batch_size=16,
-        per_device_eval_batch_size=2,
+        num_train_epochs=args.num_train_epochs,
+        per_gpu_train_batch_size=args.per_device_batch_size,
+        per_device_eval_batch_size=args.per_device_batch_size,
         save_total_limit=10,
         save_strategy='epoch',
         prediction_loss_only=False,
@@ -104,6 +117,8 @@ if __name__ == '__main__':
         label_names=['labels', 'sentence_order_label'],
         load_best_model_at_end=True  # according to eval_loss, if metric_for_best_model is not set
     )
+    if len(args.checkpoint) > 1:
+        training_args.resume_from_checkpoint = args.checkpoint
 
     if from_scratch:
         # ALBERT base config: https://tfhub.dev/google/albert_base/1
