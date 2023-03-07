@@ -1,12 +1,11 @@
 from sop_dataset import LineByLineWithSOPTextDataset
 from transformers import AlbertTokenizerFast
 from os import makedirs
-import sys
 import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser(description='''
-        This Script is used to Pretrain A Light Legal BERT in Line with the Pretrain-ALBERT Project 
+        This Script is used to prepare the data for pretraining A Light BERT model.
     ''')
 
     parser.add_argument('--data_dir', type=str, required=True,
@@ -22,7 +21,7 @@ def parse_args():
 
     parser.add_argument('--output_dir', type=str, required=False,
                         help='''
-                        The script will output two datasets, one validation set and one training set to this adress.
+                        The script will output two datasets, one validation set and one training set to this address.
                         ''',
                         default='')
 
@@ -30,13 +29,11 @@ def parse_args():
 
 args = parse_args()
 dataset = LineByLineWithSOPTextDataset
-model_path = args.model_name  # huggingface model path, e.g., 'albert-base-v2'
+model_path = args.model_name  # huggingface model path, e.g. 'albert-base-v2'
 tokenizer = AlbertTokenizerFast.from_pretrained(model_path)
 
-assert len(sys.argv) > 1
-
 input_data_dir = args.data_dir
-dataset_path = args.output_dir if len(args.output_dir) > 0 else input_data_dir + '_tokenized'
+dataset_path = args.output_dir if len(args.output_dir) > 1 else input_data_dir + '_tokenized'
 
 makedirs(dataset_path, exist_ok=True)
 
