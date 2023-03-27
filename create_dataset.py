@@ -16,8 +16,14 @@ def parse_args():
                         default='/Datasets/RawTexts')
 
     parser.add_argument('--model_name', type=str, required=False,
-                        help='''The Model (with its corresponding Tokenizer) that shall be used.''',
+                        help='''
+                        The Model (with its corresponding Tokenizer) or just the .model file of a sentencepiece 
+                        tokenizer that shall be used.''',
                         default='albert-base-v2')
+
+    parser.add_argument('--casing', action='store_true', help='''
+                                Add this flag to deactivate case-folding when using a Sentencepiece Tokenizer.
+                                ''')
 
     parser.add_argument('--output_dir', type=str, required=False,
                         help='''
@@ -30,7 +36,12 @@ def parse_args():
 args = parse_args()
 dataset = LineByLineWithSOPTextDataset
 model_path = args.model_name  # huggingface model path, e.g. 'albert-base-v2'
-tokenizer = AlbertTokenizerFast.from_pretrained(model_path)
+if ".model" in model_path:
+    import sentencepiece as spm
+    tokenizer = AlbertTokenizerFast(model_path, do_lower_case=args.casing, unk_token="[UNK]", pad_token="[PAD]",
+                                    cls_token="[CLS]", bos_token="[CLS]", eos_token="[SEP]", sep_token="[SEP]")
+else:
+    tokenizer = AlbertTokenizerFast.from_pretrained(model_path)
 
 input_data_dir = args.data_dir
 dataset_path = args.output_dir if len(args.output_dir) > 1 else input_data_dir + '_tokenized'

@@ -1,4 +1,8 @@
 import sys
+import warnings
+
+if '--use_comet' in sys.argv:
+    import comet_ml
 
 import datetime
 
@@ -13,7 +17,7 @@ import argparse
 from sop_dataset import LineByLineWithSOPTextDataset
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='''This Script is used to Pretrain A Light BERT''')
+    parser = argparse.ArgumentParser(description='''This Script is used to Pretrain A Light BERT Model''')
 
     parser.add_argument('--data_dir', type=str, required=True,
                         help='''
@@ -23,8 +27,21 @@ def parse_args():
                         default='/Datasets/RawTexts_tokenized')
 
     parser.add_argument('--model_path', type=str, required=False,
-                        help='''The Model (with its corresponding Tokenizer) that shall be used.''',
+                        help='''The Model that shall be used.''',
                         default='albert-base-v2')
+
+    parser.add_argument('--model_name', type=str, required=False,
+                        help='''How the final model shall be named''',
+                        default='ALBERT')
+
+    parser.add_argument('--custom_tokenizer', type=str, required=False,
+                        help='''Address of sentencepiece .model file. 
+                        Provide only when another tokenizer than the one provided by the model shall.
+                        Note: Only works if --from_scratch flag is set''',
+                        default=' ')
+    parser.add_argument('--casing', action='store_true', help='''
+                                    Add this flag to deactivate case-folding when using a Sentencepiece Tokenizer.
+                                    ''')
 
     parser.add_argument('--output_dir', type=str, required=False,
                         help='''
@@ -34,6 +51,11 @@ def parse_args():
     parser.add_argument('--use_comet', action='store_true', help='''
                         Add this flag to log your experiment to the comet.ml dashboard
                         ''')
+
+    parser.add_argument('--use_time_as_id', action='store_true', help='''
+                            Add this flag to name your experiment with the starting time to differentiate them. 
+                            Note: Checkpointing while using time as ids isn't supported yet
+                            ''')
 
     parser.add_argument('--from_scratch', action='store_true', help='''
                             Add this flag to use randomly initialized weights instead of further
@@ -51,7 +73,7 @@ def parse_args():
 
     parser.add_argument('--checkpoint', type=str, required=False,
                         help='''Path to a saved checkpoint from a previous session to continue training from there''',
-                        default='')
+                        )
 
     return parser.parse_args()
 
@@ -70,8 +92,6 @@ def compute_metrics(eval_pred):
 
 if __name__ == '__main__':
     args = parse_args()
-    if args.use_comet:
-        import comet_ml
 
     tokenized_data_dir = args.data_dir
 
@@ -81,13 +101,31 @@ if __name__ == '__main__':
     from_scratch = args.from_scratch
 
     tokenizer_info = json.load(open(tokenized_data_dir + '/train/info.json'))
-    tokenizer_path = tokenizer_info['tokenizer_path']
+    try:
+        if ".model" in args.custom_tokenizer:
+            tokenizer = AlbertTokenizerFast(args.custom_tokenizer, do_lower_case=args.casing, unk_token="[UNK]",
+                                            pad_token="[PAD]", cls_token="[CLS]", bos_token="[CLS]",
+                                            eos_token="[SEP]", sep_token="[SEP]")
+            tokenizer_info['tokenizer_path'] = args.custom_tokenizer
+        else:
+            tokenizer_path = tokenizer_info['tokenizer_path']
+            tokenizer = AlbertTokenizerFast.from_pretrained(tokenizer_path)
+    except:
+        warnings.warn("""
+        Tokenizer couldn't be loaded from the Dataset or the provided Tokenizer file. 
+        Load now instead from the provided model. This could lead to problems if those tokenizers dont align.
+        """)
+        tokenizer = AlbertTokenizerFast.from_pretrained(model_path)
+        tokenizer_info['tokenizer_path'] = model_path
 
     experiment_start = datetime.datetime.now().strftime("%y-%m-%d_%H:%M:%S:%f")
-    out_dir = args.output_dir + f"{args.model_name}_{experiment_start}"
+    if args.use_time_as_id:
+        out_dir = args.output_dir + f"{args.model_name}_{experiment_start}"
+    else:
+        out_dir = args.output_dir + f"{args.model_name}"
     print('Output dir:', out_dir)
 
-    tokenizer = AlbertTokenizerFast.from_pretrained(tokenizer_path)
+
     metric = load_metric("accuracy")
 
 
@@ -107,7 +145,7 @@ if __name__ == '__main__':
         output_dir=out_dir,
         overwrite_output_dir=True,
         num_train_epochs=args.num_train_epochs,
-        per_gpu_train_batch_size=args.per_device_batch_size,
+        per_device_train_batch_size=args.per_device_batch_size,
         per_device_eval_batch_size=args.per_device_batch_size,
         save_total_limit=10,
         save_strategy='epoch',
@@ -117,7 +155,7 @@ if __name__ == '__main__':
         label_names=['labels', 'sentence_order_label'],
         load_best_model_at_end=True  # according to eval_loss, if metric_for_best_model is not set
     )
-    if len(args.checkpoint) > 1:
+    if args.checkpoint:
         training_args.resume_from_checkpoint = args.checkpoint
 
     if from_scratch:
@@ -126,15 +164,27 @@ if __name__ == '__main__':
         model = AlbertForPreTraining(config)
     else:
         model = AlbertForPreTraining.from_pretrained(model_path)
+
     trainer = Trainer(
         model=model,
         args=training_args,
         data_collator=data_collator,
         train_dataset=dataset_sop,
         compute_metrics=compute_metrics,
-        eval_dataset=dataset_sop_eval
+        eval_dataset=dataset_sop_eval,
+        tokenizer=tokenizer
     )
-    trainer.train()
+    try:
+        trainer.train(resume_from_checkpoint=True)#(resume_from_checkpoint=args.checkpoint)
+    except ValueError as ve:
+        warnings.warn("""
+        There was an value error during training. That means most of the time that there wasn't yet a checkpoint
+        in the given directory therefore we'll try next to train without checkpointing. 
+        In following iterations checkpoints should be available, therefore please check your/our code if this warning 
+        should persist.
+        """)
+        trainer.train(resume_from_checkpoint=False)
+
     print(trainer.evaluate())
 
     if args.use_comet:
@@ -145,9 +195,12 @@ if __name__ == '__main__':
             'model_save_dir': out_dir,
             'experiment_start': experiment_start
         })
+
         experiment.log_parameters(tokenizer_info, prefix='dataset/')
         experiment.log_parameters(training_args.to_sanitized_dict(), prefix='train_args/')
         experiment.log_parameter('from_scratch', from_scratch)
+        experiment.end()
+        comet_ml.API().wait_for_finish(experiment.id)
 
     model.save_pretrained(out_dir, push_to_hub=False)
     print('Pre-Training done!')
